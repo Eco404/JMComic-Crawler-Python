@@ -66,6 +66,6 @@ For a photo/chapter ID:
 ```
 ## File sending
 
-The Skill should send downloaded results through AstrBot's file-sending interface.
+The Skill should send downloaded results through AstrBot's file-sending interface, not media interfaces.
 
-The default service output is PDF. For a normal single-PDF request, AstrBot should send the PDF file directly. If a request produces multiple PDFs, or the user asks for zip/raw/original files, AstrBot should send the returned zip file.
+The default service output is PDF. For a normal single-PDF request, AstrBot should send the PDF file directly. If the backend returns a zip in PDF mode, AstrBot should extract the PDF file(s) and send those PDFs instead of the zip. Only send zip files when the user asks for zip/raw/original files. After successful sending, delete local temporary files and extraction directories.

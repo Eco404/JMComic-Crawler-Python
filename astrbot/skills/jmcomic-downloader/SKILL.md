@@ -61,9 +61,11 @@ For a keyword request, call `/search`, summarize likely matches, and ask the use
 3. Submit `POST /tasks` with `album_ids`, `photo_ids`, and `output_format`.
 4. Poll `GET /tasks/{task_id}` until `succeeded` or `failed`.
 5. Download `/tasks/{task_id}/archive` to a local file.
-6. Return the local file path or attach/send it using the platform's file-sending capability.
+6. If `output_format=pdf` and the downloaded file is a zip, extract the PDF file(s) from the zip and send the extracted PDF file(s), not the zip.
+7. Send each result with AstrBot's file-sending interface. Do not use image/media/audio/video media interfaces for these files.
+8. After the file send succeeds, delete local temporary result files, extracted PDF files, and temporary extraction directories.
 
-With `output_format=pdf`, the service returns a PDF directly when there is exactly one generated PDF. If one request produces multiple PDF files, the service returns a zip containing those PDFs. With `output_format=zip`, `raw`, or `original`, the service returns a zip containing the original downloaded image files.
+With `output_format=pdf`, the service returns a PDF directly when there is exactly one generated PDF. If one request produces multiple PDF files, the service may return a zip containing those PDFs. In that case, extract the PDFs and send the PDFs individually. With `output_format=zip`, `raw`, or `original`, send the returned zip because the user asked for source/original files.
 
 ## Script
 
@@ -84,15 +86,17 @@ Arguments:
 - `--timeout` controls total wait time in seconds.
 - `--interval` controls polling interval in seconds.
 
-The script prints the created result file path on success.
+The script prints one result file path per line on success. In default `pdf` mode, if the service returns a zip containing PDFs, the script extracts the PDFs and prints the extracted PDF paths instead of the zip path.
 
 ## Direct Python Pattern
 
 Use this pattern if the script path is unavailable:
 
 ```python
+import io
 import os
 import time
+import zipfile
 from pathlib import Path
 
 import requests
@@ -123,14 +127,35 @@ else:
 
 archive_resp = requests.get(f"{base_url}/tasks/{task_id}/archive", timeout=120)
 archive_resp.raise_for_status()
-output = Path("/tmp") / f"jmcomic-{task_id}.pdf"
-output.write_bytes(archive_resp.content)
-print(output)
+content_type = archive_resp.headers.get("content-type", "").split(";", 1)[0].lower()
+outputs = []
+
+if content_type == "application/pdf":
+    output = Path("/tmp") / f"jmcomic-{task_id}.pdf"
+    output.write_bytes(archive_resp.content)
+    outputs.append(output)
+elif content_type in {"application/zip", "application/x-zip-compressed"}:
+    extract_dir = Path("/tmp") / f"jmcomic-{task_id}"
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(archive_resp.content)) as archive:
+        for info in archive.infolist():
+            if info.is_dir() or not info.filename.lower().endswith(".pdf"):
+                continue
+            output = extract_dir / Path(info.filename).name
+            output.write_bytes(archive.read(info))
+            outputs.append(output)
+    if not outputs:
+        raise RuntimeError("PDF mode returned a zip without PDF files")
+else:
+    raise RuntimeError(f"unexpected response content type: {content_type}")
+
+for output in outputs:
+    print(output)
 ```
 
 ## Response Guidance
 
-When successful, send the generated file through AstrBot's file interface. Do not use media interfaces. For normal PDF output, send the PDF directly. If the service returns a zip because the request produced multiple PDFs or the user requested raw/original files, send that zip file and mention what it contains.
+When successful, send every printed result path through AstrBot's file interface. Do not use media interfaces. For default PDF output, send PDF files directly; if the backend returned a zip of PDFs, extract it and send the PDFs, not the zip. Only send zip files when the user requested zip/raw/original files. After successful sending, clean up local temporary files and extraction directories.
 When the service fails, include the task ID and the error message, but do not expose internal container details.
 
 

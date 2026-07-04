@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 import requests
 
 
 OUTPUT_FORMATS = {"pdf", "zip", "raw", "original"}
+ZIP_CONTENT_TYPES = {"application/zip", "application/x-zip-compressed"}
 
 
 def parse_ids(raw_ids: list[str]) -> tuple[list[str], list[str]]:
@@ -80,16 +83,74 @@ def wait_for_task(base_url: str, task_id: str, timeout: int, interval: float) ->
     raise TimeoutError(f"jmcomic task timed out: {task_id}")
 
 
-def normalize_output_path(output: Path, content_type: str) -> Path:
-    normalized_type = content_type.split(";", 1)[0].strip().lower()
-    if normalized_type == "application/pdf" and output.suffix.lower() != ".pdf":
-        return output.with_suffix(".pdf")
-    if normalized_type in {"application/zip", "application/x-zip-compressed"} and output.suffix.lower() != ".zip":
-        return output.with_suffix(".zip")
+def response_content_type(response: requests.Response) -> str:
+    return response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+
+
+def ensure_suffix(output: Path, suffix: str) -> Path:
+    if output.suffix.lower() == suffix:
+        return output
+    return output.with_suffix(suffix)
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    for index in range(2, 1000):
+        candidate = parent / f"{stem}-{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+
+    raise RuntimeError(f"cannot allocate unique output path for {path}")
+
+
+def extract_pdf_files(zip_bytes: bytes, output: Path) -> list[Path]:
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        pdf_entries = [
+            info for info in archive.infolist()
+            if not info.is_dir() and info.filename.lower().endswith(".pdf")
+        ]
+
+        if not pdf_entries:
+            raise RuntimeError("PDF output was requested, but the returned zip contains no PDF files")
+
+        if len(pdf_entries) == 1:
+            pdf_path = ensure_suffix(output, ".pdf")
+            pdf_path.parent.mkdir(parents=True, exist_ok=True)
+            pdf_path.write_bytes(archive.read(pdf_entries[0]))
+            return [pdf_path]
+
+        output_dir = output.with_suffix("")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        paths: list[Path] = []
+
+        for index, info in enumerate(pdf_entries, start=1):
+            source_name = Path(info.filename).name or f"jmcomic-{index}.pdf"
+            if not source_name.lower().endswith(".pdf"):
+                source_name = f"{source_name}.pdf"
+            pdf_path = unique_path(output_dir / source_name)
+            pdf_path.write_bytes(archive.read(info))
+            paths.append(pdf_path)
+
+        return paths
+
+
+def write_result_file(output: Path, content: bytes, content_type: str) -> Path:
+    if content_type == "application/pdf":
+        output = ensure_suffix(output, ".pdf")
+    elif content_type in ZIP_CONTENT_TYPES:
+        output = ensure_suffix(output, ".zip")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(content)
     return output
 
 
-def download_result(base_url: str, task_id: str, output: Path) -> Path:
+def download_result(base_url: str, task_id: str, output: Path, output_format: str) -> list[Path]:
     response = requests.get(
         f"{base_url}/tasks/{task_id}/archive",
         headers=request_headers(),
@@ -97,10 +158,13 @@ def download_result(base_url: str, task_id: str, output: Path) -> Path:
     )
     response.raise_for_status()
 
-    output = normalize_output_path(output, response.headers.get("content-type", ""))
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(response.content)
-    return output
+    content_type = response_content_type(response)
+    content = response.content
+
+    if output_format == "pdf" and content_type in ZIP_CONTENT_TYPES:
+        return extract_pdf_files(content, output)
+
+    return [write_result_file(output, content, content_type)]
 
 
 def main() -> int:
@@ -117,7 +181,11 @@ def main() -> int:
         default="pdf",
         help="Output content format. pdf is the default; zip/raw/original keeps downloaded source image files.",
     )
-    parser.add_argument("--output", default=None, help="Output file path. Defaults to /tmp/jmcomic.pdf for pdf format and /tmp/jmcomic.zip otherwise.")
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Output file path. Defaults to /tmp/jmcomic.pdf for pdf format and /tmp/jmcomic.zip otherwise.",
+    )
     parser.add_argument("--timeout", type=int, default=1800, help="Maximum wait time in seconds.")
     parser.add_argument("--interval", type=float, default=3.0, help="Polling interval in seconds.")
     args = parser.parse_args()
@@ -128,8 +196,9 @@ def main() -> int:
         task_id = submit_task(base_url, album_ids, photo_ids, args.format)
         wait_for_task(base_url, task_id, args.timeout, args.interval)
         default_output = "/tmp/jmcomic.pdf" if args.format == "pdf" else "/tmp/jmcomic.zip"
-        output = download_result(base_url, task_id, Path(args.output or default_output))
-        print(output)
+        outputs = download_result(base_url, task_id, Path(args.output or default_output), args.format)
+        for output in outputs:
+            print(output)
         return 0
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -138,4 +207,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
