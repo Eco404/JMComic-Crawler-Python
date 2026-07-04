@@ -53,8 +53,8 @@ Supported ranking periods: `day`, `week`, `month`.
 
 ## Submit a download task
 
-The default output format is `pdf`; the returned archive contains generated PDF file(s).
-Use `output_format: "zip"` (or `raw` / `original`) to keep original downloaded image files in the archive.
+The default output format is `pdf`. If the task produces exactly one PDF, the result endpoint returns that PDF directly. If it produces multiple PDFs, it returns a zip containing those PDFs.
+Use `output_format: "zip"` (or `raw` / `original`) to keep original downloaded image files in a zip archive.
 
 PDF output:
 
@@ -83,7 +83,7 @@ curl http://localhost:8000/tasks/<task_id>
 When `status` is `succeeded`, download the archive:
 
 ```bash
-curl -L http://localhost:8000/tasks/<task_id>/archive -o jmcomic.zip
+curl -L http://localhost:8000/tasks/<task_id>/archive -o jmcomic.pdf
 ```
 
 ## Calling from another Docker service
@@ -125,7 +125,7 @@ while True:
 
 archive = requests.get(f"{base_url}/tasks/{task_id}/archive", timeout=120)
 archive.raise_for_status()
-open("jmcomic.zip", "wb").write(archive.content)
+open("jmcomic.pdf", "wb").write(archive.content)
 ```
 
 ## Notes

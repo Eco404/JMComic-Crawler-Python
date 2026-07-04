@@ -80,21 +80,31 @@ def wait_for_task(base_url: str, task_id: str, timeout: int, interval: float) ->
     raise TimeoutError(f"jmcomic task timed out: {task_id}")
 
 
-def download_archive(base_url: str, task_id: str, output: Path) -> Path:
-    output.parent.mkdir(parents=True, exist_ok=True)
+def normalize_output_path(output: Path, content_type: str) -> Path:
+    normalized_type = content_type.split(";", 1)[0].strip().lower()
+    if normalized_type == "application/pdf" and output.suffix.lower() != ".pdf":
+        return output.with_suffix(".pdf")
+    if normalized_type in {"application/zip", "application/x-zip-compressed"} and output.suffix.lower() != ".zip":
+        return output.with_suffix(".zip")
+    return output
 
+
+def download_result(base_url: str, task_id: str, output: Path) -> Path:
     response = requests.get(
         f"{base_url}/tasks/{task_id}/archive",
         headers=request_headers(),
         timeout=120,
     )
     response.raise_for_status()
+
+    output = normalize_output_path(output, response.headers.get("content-type", ""))
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(response.content)
     return output
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Download JMComic archive via jmcomic-service.")
+    parser = argparse.ArgumentParser(description="Download JMComic result file via jmcomic-service.")
     parser.add_argument("ids", nargs="+", help="Album IDs, a-prefixed album IDs, or p-prefixed photo IDs.")
     parser.add_argument(
         "--url",
@@ -107,7 +117,7 @@ def main() -> int:
         default="pdf",
         help="Output content format. pdf is the default; zip/raw/original keeps downloaded source image files.",
     )
-    parser.add_argument("--output", default="/tmp/jmcomic.zip", help="Output zip path.")
+    parser.add_argument("--output", default=None, help="Output file path. Defaults to /tmp/jmcomic.pdf for pdf format and /tmp/jmcomic.zip otherwise.")
     parser.add_argument("--timeout", type=int, default=1800, help="Maximum wait time in seconds.")
     parser.add_argument("--interval", type=float, default=3.0, help="Polling interval in seconds.")
     args = parser.parse_args()
@@ -117,7 +127,8 @@ def main() -> int:
         album_ids, photo_ids = parse_ids(args.ids)
         task_id = submit_task(base_url, album_ids, photo_ids, args.format)
         wait_for_task(base_url, task_id, args.timeout, args.interval)
-        output = download_archive(base_url, task_id, Path(args.output))
+        default_output = "/tmp/jmcomic.pdf" if args.format == "pdf" else "/tmp/jmcomic.zip"
+        output = download_result(base_url, task_id, Path(args.output or default_output))
         print(output)
         return 0
     except Exception as exc:

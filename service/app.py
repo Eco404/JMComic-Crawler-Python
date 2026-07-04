@@ -321,6 +321,12 @@ def zip_directory(source_dir: Path, output_base: Path) -> Path:
     return Path(archive)
 
 
+def find_pdf_files(source_dir: Path) -> list[Path]:
+    if not source_dir.exists():
+        return []
+    return sorted(path for path in source_dir.rglob("*.pdf") if path.is_file())
+
+
 def has_downloaded_files(source_dir: Path) -> bool:
     return source_dir.exists() and any(path.is_file() for path in source_dir.rglob("*"))
 
@@ -372,11 +378,21 @@ def run_download_task(task_id: str):
                 "Check jmcomic logs, network/proxy settings, and whether the IDs are valid."
             )
 
-        archive_path = zip_directory(task_download_dir, archive_base)
+        if output_format == "pdf":
+            pdf_files = find_pdf_files(task_download_dir)
+            if not pdf_files:
+                raise RuntimeError("PDF output was requested but no PDF files were generated.")
+            if len(pdf_files) == 1:
+                output_path = pdf_files[0]
+            else:
+                output_path = zip_directory(task_download_dir, archive_base)
+        else:
+            output_path = zip_directory(task_download_dir, archive_base)
+
         set_task(
             task_id,
             status="succeeded",
-            archive_path=str(archive_path),
+            archive_path=str(output_path),
             archive_url=f"/tasks/{task_id}/archive",
         )
     except Exception as exc:
@@ -506,8 +522,16 @@ def get_archive(task_id: str):
     if not archive_path or not Path(archive_path).is_file():
         raise HTTPException(status_code=404, detail="archive not found")
 
+    output_path = Path(archive_path)
+    if output_path.suffix.lower() == ".pdf":
+        return FileResponse(
+            output_path,
+            media_type="application/pdf",
+            filename=output_path.name,
+        )
+
     return FileResponse(
-        archive_path,
+        output_path,
         media_type="application/zip",
         filename=f"jmcomic-{task_id}.zip",
     )

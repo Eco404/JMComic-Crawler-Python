@@ -64,4 +64,8 @@ For a photo/chapter ID:
 ```text
 下载 JM 章节 p456
 ```
+## File sending
 
+The Skill should send downloaded results through AstrBot's file-sending interface.
+
+The default service output is PDF. For a normal single-PDF request, AstrBot should send the PDF file directly. If a request produces multiple PDFs, or the user asks for zip/raw/original files, AstrBot should send the returned zip file.

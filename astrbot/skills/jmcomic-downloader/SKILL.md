@@ -60,17 +60,17 @@ For a keyword request, call `/search`, summarize likely matches, and ask the use
    - Use `zip` when the user asks for 压缩包, zip, 原文件, 原始文件, 图片文件, or raw/original files.
 3. Submit `POST /tasks` with `album_ids`, `photo_ids`, and `output_format`.
 4. Poll `GET /tasks/{task_id}` until `succeeded` or `failed`.
-5. Download `/tasks/{task_id}/archive` to a local `.zip` file.
+5. Download `/tasks/{task_id}/archive` to a local file.
 6. Return the local file path or attach/send it using the platform's file-sending capability.
 
-The archive is always a zip download. With `output_format=pdf`, the zip contains generated PDF file(s). With `output_format=zip`, `raw`, or `original`, the zip contains the original downloaded image files.
+With `output_format=pdf`, the service returns a PDF directly when there is exactly one generated PDF. If one request produces multiple PDF files, the service returns a zip containing those PDFs. With `output_format=zip`, `raw`, or `original`, the service returns a zip containing the original downloaded image files.
 
 ## Script
 
 Prefer using the bundled script for download-only tasks:
 
 ```bash
-python skills/jmcomic-downloader/scripts/jmcomic_service_client.py 123 p456 --format pdf --output /tmp/jmcomic.zip
+python skills/jmcomic-downloader/scripts/jmcomic_service_client.py 123 p456 --format pdf --output /tmp/jmcomic.pdf
 ```
 
 Arguments:
@@ -80,11 +80,11 @@ Arguments:
 - `p456` becomes photo ID `456`.
 - `--format pdf` is the default.
 - `--format zip`, `--format raw`, or `--format original` keeps source image files.
-- `--output` controls the zip path.
+- `--output` controls the result file path. Use a `.pdf` path for normal PDF output and a `.zip` path for raw/original archives.
 - `--timeout` controls total wait time in seconds.
 - `--interval` controls polling interval in seconds.
 
-The script prints the created zip path on success.
+The script prints the created result file path on success.
 
 ## Direct Python Pattern
 
@@ -123,14 +123,14 @@ else:
 
 archive_resp = requests.get(f"{base_url}/tasks/{task_id}/archive", timeout=120)
 archive_resp.raise_for_status()
-output = Path("/tmp") / f"jmcomic-{task_id}.zip"
+output = Path("/tmp") / f"jmcomic-{task_id}.pdf"
 output.write_bytes(archive_resp.content)
 print(output)
 ```
 
 ## Response Guidance
 
-When successful, say that the archive is ready and provide or send the zip file. Mention whether it contains PDF(s) or original image files.
+When successful, send the generated file through AstrBot's file interface. Do not use media interfaces. For normal PDF output, send the PDF directly. If the service returns a zip because the request produced multiple PDFs or the user requested raw/original files, send that zip file and mention what it contains.
 When the service fails, include the task ID and the error message, but do not expose internal container details.
 
 

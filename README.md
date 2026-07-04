@@ -74,6 +74,146 @@
   pip install git+https://github.com/hect0x7/JMComic-Crawler-Python
   ```
 
+## 部署
+
+### Docker 部署 HTTP 服务
+
+本仓库提供了一个 Docker 服务封装，可以把 `jmcomic` 暴露为 HTTP API，方便 AstrBot 或其他 Docker 服务在内网中调用。建议只部署在可信的 Docker 内网中。
+
+1. 复制环境变量模板：
+
+   ```sh
+   cp .env.example .env
+   ```
+
+   Windows PowerShell 可使用：
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+2. 按需修改 `.env`。不填写 `JM_USERNAME` 和 `JM_PASSWORD` 时，会以未登录模式运行，基本查询和下载功能仍可使用。需要代理时可以填写 `JM_PROXY`，例如：
+
+   ```env
+   JM_PROXY=http://host.docker.internal:7890
+   ```
+
+3. 构建并启动：
+
+   ```sh
+   docker compose up -d --build
+   ```
+
+4. 检查服务状态：
+
+   ```sh
+   curl http://localhost:8000/health
+   ```
+
+5. 提交下载任务：
+
+   ```sh
+   curl -X POST http://localhost:8000/tasks \
+     -H "Content-Type: application/json" \
+     -d "{\"album_ids\":[\"123\"],\"photo_ids\":[],\"output_format\":\"pdf\"}"
+   ```
+
+   默认输出格式为 `pdf`。如果只生成一个 PDF，下载接口会直接返回 PDF 文件；如果一次任务生成多个 PDF，则返回包含这些 PDF 的 zip 包。如果希望保留原始图片目录结构，可以把 `output_format` 设置为 `zip`、`raw` 或 `original`。
+
+6. 查看任务状态并下载结果：
+
+   ```sh
+   curl http://localhost:8000/tasks/<task_id>
+   curl -L http://localhost:8000/tasks/<task_id>/archive -o jmcomic.pdf
+   ```
+
+更多接口示例见 [Docker 服务文档](./docs/docker-service.md)。
+
+### Docker 环境变量配置
+
+常用配置都可以通过 `.env` 暴露给 Docker 服务：
+
+- `JM_SERVICE_PORT`：宿主机暴露端口，默认 `8000`。
+- `JM_DOWNLOAD_DIR`：容器内下载目录，默认 `/data/downloads`。
+- `JM_PROXY`：HTTP/HTTPS 代理地址，留空则不使用代理。
+- `JM_USERNAME` / `JM_PASSWORD`：禁漫账号密码，两者都填写时启用登录；都留空时不登录。
+- `JM_CLIENT_IMPL`：客户端实现，常用 `api` 或 `html`。
+- `JM_CLIENT_RETRY_TIMES`：请求重试次数。
+- `JM_REQUEST_TIMEOUT`：请求超时时间。
+- `JM_IMAGE_THREADS`：图片并发下载数量。
+- `JM_PHOTO_THREADS`：章节并发下载数量。
+- `JM_IMAGE_SUFFIX`：图片转换后缀，例如 `.jpg` 或 `.png`，留空则保持默认。
+- `JM_DIR_RULE`：下载目录规则。
+- `JM_DEFAULT_OUTPUT_FORMAT`：默认输出格式，支持 `pdf`、`zip`、`raw`、`original`。
+
+完整说明见 [.env.example](./.env.example)。
+
+### 导入 AstrBot Skill
+
+本仓库内置 AstrBot Skill：
+
+```text
+astrbot/skills/jmcomic-downloader
+```
+
+导入方式：
+
+1. 将 `astrbot/skills/jmcomic-downloader` 目录打包成 zip：
+
+   ```sh
+   cd astrbot/skills
+   zip -r jmcomic-downloader.zip jmcomic-downloader
+   ```
+
+2. 在 AstrBot WebUI 中进入 `Plugins` -> `Skills`，上传 `jmcomic-downloader.zip`。
+
+3. 在 AstrBot 容器中配置服务地址：
+
+   ```env
+   JMCOMIC_SERVICE_URL=http://jmcomic-service:8000
+   ```
+
+4. 用户可以用类似以下内容触发：
+
+   ```text
+   下载 JM 123
+   下载 JM 章节 p456
+   ```
+
+Skill 会将 `jmcomic`、`jm`、`禁漫`、`jm天堂`、`禁漫天堂` 相关的查询和下载请求识别为本服务相关任务。更多说明见 [AstrBot Skill 文档](./docs/astrbot-skill.md)。
+
+### Docker 网络注意事项
+
+从宿主机测试服务时，可以访问：
+
+```text
+http://localhost:8000
+```
+
+但从 AstrBot 容器内部访问时，不能使用 `localhost`，因为它指向 AstrBot 容器自己。AstrBot 应访问：
+
+```text
+http://jmcomic-service:8000
+```
+
+这个地址只有在 AstrBot 和 `jmcomic-service` 位于同一个用户自定义 Docker bridge 网络时才可解析。Docker 默认的 `bridge` 网络不提供这种容器名 DNS 解析；Docker Compose 默认创建的是用户自定义 bridge 网络，同一个 compose 文件里的服务可以直接用服务名互访。
+
+如果 AstrBot 和本服务属于不同的 compose 项目，建议创建共享网络：
+
+```sh
+docker network create astrbot-net
+```
+
+然后在两个 compose 文件中都声明：
+
+```yaml
+networks:
+  astrbot-net:
+    external: true
+```
+
+并把 AstrBot 服务和 `jmcomic-service` 都加入 `astrbot-net`。如果服务名不是 `jmcomic-service`，请调整 `JMCOMIC_SERVICE_URL`，或给该服务配置 network alias。
+
 ## 快速上手
 
 ### 1. 下载本子方法
