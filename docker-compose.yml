@@ -1,0 +1,36 @@
+services:
+  jmcomic-service:
+    build: .
+    image: jmcomic-service:latest
+    container_name: jmcomic-service
+    restart: unless-stopped
+    environment:
+      JM_SERVICE_PORT: ${JM_SERVICE_PORT:-8000}
+      JM_SERVICE_WORKERS: ${JM_SERVICE_WORKERS:-2}
+      JM_SERVICE_DATA_DIR: /data
+      JM_DOWNLOAD_DIR: /data/downloads
+      JM_OPTION_PATH: /app/docker/option.yml
+      JM_PROXY: ${JM_PROXY:-}
+      JM_USERNAME: ${JM_USERNAME:-}
+      JM_PASSWORD: ${JM_PASSWORD:-}
+      JM_CLIENT_IMPL: ${JM_CLIENT_IMPL:-api}
+      JM_CLIENT_CACHE: ${JM_CLIENT_CACHE:-}
+      JM_CLIENT_RETRY_TIMES: ${JM_CLIENT_RETRY_TIMES:-5}
+      JM_REQUEST_TIMEOUT: ${JM_REQUEST_TIMEOUT:-20}
+      JM_REQUEST_IMPERSONATE: ${JM_REQUEST_IMPERSONATE:-chrome}
+      JM_DOWNLOAD_CACHE: ${JM_DOWNLOAD_CACHE:-true}
+      JM_IMAGE_DECODE: ${JM_IMAGE_DECODE:-true}
+      JM_IMAGE_SUFFIX: ${JM_IMAGE_SUFFIX:-}
+      JM_IMAGE_THREADS: ${JM_IMAGE_THREADS:-20}
+      JM_PHOTO_THREADS: ${JM_PHOTO_THREADS:-4}
+      JM_DIR_RULE: ${JM_DIR_RULE:-Bd_Aauthor_Atitle_Pindex}
+      JM_NORMALIZE_ZH: ${JM_NORMALIZE_ZH:-zh-cn}
+      JM_DEFAULT_OUTPUT_FORMAT: ${JM_DEFAULT_OUTPUT_FORMAT:-pdf}
+    volumes:
+      - jmcomic-data:/data
+    ports:
+      - "${JM_SERVICE_PORT:-8000}:8000"
+
+volumes:
+  jmcomic-data:
+

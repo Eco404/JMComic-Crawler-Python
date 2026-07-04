@@ -1,0 +1,32 @@
+log: true
+
+dir_rule:
+  base_dir: ${JM_DOWNLOAD_DIR}
+  rule: Bd_Aauthor_Atitle_Pindex
+  normalize_zh: zh-cn
+
+download:
+  cache: true
+  image:
+    decode: true
+    suffix: null
+  threading:
+    image: 20
+    photo: 4
+
+client:
+  impl: api
+  retry_times: 5
+  postman:
+    type: curl_cffi
+    meta_data:
+      timeout: 20
+      impersonate: chrome
+      proxies: null
+  domain:
+    html:
+      - jmcomic1.me
+      - jmcomic.me
+
+plugins:
+  valid: log
